@@ -25,7 +25,7 @@ func TestSample1(t *testing.T) {
 	}
 
 	t.Logf("Running Sample1 test")
-	cmd := exec.Command("go", "test", "github.com/mxmauro/unmanagedgen/testdata/sample1")
+	cmd := exec.Command("go", "test", "-v", "github.com/mxmauro/unmanagedgen/testdata/sample1")
 	cmd.Dir = filepath.Join(filepath.Dir(filename), "..")
 	err = runCmd(t, cmd)
 	if err != nil {

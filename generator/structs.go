@@ -17,13 +17,17 @@ func (sc *SaveContext) WriteStructs() error {
 		if err != nil {
 			return err
 		}
+	}
 
-		err = sc.WriteStructAllocator(st)
+	for _, st := range sc.gen.structs {
+		err := sc.WriteStructAllocator(st)
 		if err != nil {
 			return err
 		}
+	}
 
-		err = sc.WriteStructFieldsSetters(st)
+	for _, st := range sc.gen.structs {
+		err := sc.WriteStructFieldsSetters(st)
 		if err != nil {
 			return err
 		}
@@ -67,9 +71,9 @@ func (sc *SaveContext) WriteStructDeclaration(st *Struct) error {
 
 	err := sc.WriteTemplate("StructDeclaration", `
 type {{.Name}} struct {
-{{- range $fldIdx, $fld := .Fields}}
+{{- range $fldIdx, $fld := .Fields }}
 	{{$fld.Name}} {{$fld.TypeNamePrefixMod}}{{$fld.TypeName}} {{$fld.Tag}}
-{{- end}}
+{{- end }}
 
 	__alloc {{.AllocatorPkg}}.Allocator
 	__isInternal bool
@@ -158,34 +162,13 @@ func (v *{{.StructName}}) InitAllocator(alloc {{.AllocatorPkg}}.Allocator) {
 	v.initNonPointerNonNativeFields()
 }
 
-func (v *{{.StructName}}) initNonPointerNonNativeFields() {
-{{range $fldIdx, $fld := .Fields}}
-	{{- if not $fld.Opts.IsPointer }}
-		{{- if isArray $fld.Opts.ArraySlice }}
-			{{- if not $fld.Opts.IsArraySliceOfPointers }}
-				{{- if not $fld.Opts.IsNative }}
-					{{- $c := counter}}
-					vv{{$c}} := v.{{$fld.Name}}
-					arrLen{{$c}} := len(vv{{$c}})
-					for idx := 0; idx < arrLen{{$c}}; idx += 1 {
-						vv{{$c}}[idx].InitAllocator(v.__alloc)
-					}
-				{{- end }}
-			{{- end }}
-		{{- else if not $fld.Opts.IsNative }}
-			v.{{$fld.Name}}.InitAllocator(v.__alloc)
-		{{- end }}
-	{{- end }}
-{{end }}
-}
-
 func (v *{{.StructName}}) Free() {
 {{- if .MustFreeStrings }} 
 	var bytePtr *byte
-{{- end}}
+{{- end }}
 {{- if .HaveArrays }} 
 	var arrLen int
-{{- end}}
+{{- end }}
 
 	if v.__freeing {
 		return
@@ -235,6 +218,7 @@ func (v *{{.StructName}}) Free() {
 					{{- end }}
 				{{- else }}
 					// {{$fld.Name}} is a pointer to an array/slice of non-native objects (they are supposed to be unmanaged too)
+					{{- $c := counter}}
 					vv{{$c}} := *v.{{$fld.Name}}
 					arrLen = len(vv{{$c}})
 					for idx := 0; idx < arrLen; idx += 1 {
@@ -249,15 +233,13 @@ func (v *{{.StructName}}) Free() {
 		{{- if $fld.Opts.IsArraySliceOfPointers }}
 			// {{$fld.Name}} is an array/slice of pointers
 			// Free each non-nil element of the array (they are supposed to be unmanaged too)
-			{{- $c := counter}}
-			vv{{$c}} := v.{{$fld.Name}}
-			arrLen = len(vv{{$c}})
+			arrLen = len(v.{{$fld.Name}})
 			for idx := 0; idx < arrLen; idx += 1 {
-				if vv{{$c}}[idx] != nil {
+				if v.{{$fld.Name}}[idx] != nil {
 					{{- if $fld.Opts.IsNative }}
-						v.__alloc.Free(unsafe.Pointer(vv{{$c}}[idx]))
+						v.__alloc.Free(unsafe.Pointer(v.{{$fld.Name}}[idx]))
 					{{- else }}
-						vv{{$c}}[idx].Free()
+						v.{{$fld.Name}}[idx].Free()
 					{{- end }}
 				}
 			}
@@ -266,10 +248,9 @@ func (v *{{.StructName}}) Free() {
 				// {{$fld.Name}} is an array/slice of strings
 				// Free each string data (we don't own the string headers)
 				{{- $c := counter}}
-				vv{{$c}} := v.{{$fld.Name}}
-				arrLen = len(vv{{$c}})
+				arrLen = len(v.{{$fld.Name}})
 				for idx := 0; idx < arrLen; idx += 1 {
-					bytePtr = unsafe.StringData(vv{{$c}}[idx])
+					bytePtr = unsafe.StringData(v.{{$fld.Name}}[idx])
 					if bytePtr != nil {
 						v.__alloc.Free(unsafe.Pointer(bytePtr))
 					}
@@ -278,10 +259,10 @@ func (v *{{.StructName}}) Free() {
 			{{- end }}
 		{{- else }}
 			// {{$fld.Name}} is an array/slice of non-native objects (they are supposed to be unmanaged too)
-			vv{{$c}} := v.{{$fld.Name}}
-			arrLen = len(vv{{$c}})
+			{{- $c := counter}}
+			arrLen = len(v.{{$fld.Name}})
 			for idx := 0; idx < arrLen; idx += 1 {
-				vv{{$c}}[idx].Free()
+				v.{{$fld.Name}}[idx].Free()
 			}
 		{{- end }}
 		{{- if isSlice $fld.Opts.ArraySlice }}
@@ -300,18 +281,42 @@ func (v *{{.StructName}}) Free() {
 			if bytePtr != nil {
 				v.__alloc.Free(unsafe.Pointer(bytePtr))
 			}
-		{{- end}}
+		{{- end }}
 	{{- else }}
 		// {{$fld.Name}} is a non-native objects (it is supposed to be unmanaged too)
 		v.{{$fld.Name}}.Free()
-	{{- end}}
-{{end}}
+	{{- end }}
+{{end }}
 
 	if !v.__isInternal {
 		v.__alloc.Free(unsafe.Pointer(v))
 	} else {
 		v.__freeing = false
 	}
+}
+
+func (v *{{.StructName}}) Allocator() {{.AllocatorPkg}}.Allocator {
+	return v.__alloc
+}
+
+func (v *{{.StructName}}) initNonPointerNonNativeFields() {
+{{- range $fldIdx, $fld := .Fields}}
+	{{- if and (not $fld.Opts.IsPointer) (not $fld.Opts.IsNative) }}
+		{{- if isArrayOrSlice $fld.Opts.ArraySlice }}
+			{{- if isArray $fld.Opts.ArraySlice }}
+				{{- if not $fld.Opts.IsArraySliceOfPointers }}
+					{{- $c := counter}}
+					arrLen{{$c}} := len(v.{{$fld.Name}})
+					for idx := 0; idx < arrLen{{$c}}; idx += 1 {
+						v.{{$fld.Name}}[idx].InitAllocator(v.__alloc)
+					}
+				{{- end }}
+			{{- end }}
+		{{- else }}
+			v.{{$fld.Name}}.InitAllocator(v.__alloc)
+		{{- end }}
+	{{- end }}
+{{- end }}
 }
 `, funcMap, allocNF)
 	if err != nil {
@@ -498,24 +503,25 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}Capacity(slice
 					newSlice = v.allocSlicePtr_{{$fld.FriendlyArrayTypeName}}(sliceLen)
 				}
 
+				toPreserve := 0
+
 				// Copy original items if preserve up to the size of the new slice and free the rest
 				if v.{{$fld.Name}} != nil {
-					{{- if or $fld.Opts.IsArraySliceOfPointers (or (not $fld.Opts.IsNative) $fld.Opts.IsString) }}
-						vv := *v.{{$fld.Name}}
-						oldSliceLen := len(vv)
+					vv := *v.{{$fld.Name}}
+					oldSliceLen := len(vv)
 
-						// Calculate the number of entries to preserve
-						toPreserve := 0
-						if preserve {
-							toPreserve = oldSliceLen
-							if toPreserve > sliceLen {
-								toPreserve = sliceLen
-							}
-							for idx := 0; idx < toPreserve; idx++ {
-								(*newSlice)[idx] = vv[idx]
-							}
+					// Calculate the number of entries to preserve
+					if preserve {
+						toPreserve = oldSliceLen
+						if toPreserve > sliceLen {
+							toPreserve = sliceLen
 						}
+						for idx := 0; idx < toPreserve; idx++ {
+							(*newSlice)[idx] = vv[idx]
+						}
+					}
 
+					{{- if or $fld.Opts.IsArraySliceOfPointers (or (not $fld.Opts.IsNative) $fld.Opts.IsString) }}
 						// Free unused entries
 						for idx := toPreserve; idx < oldSliceLen; idx++ {
 							{{- if $fld.Opts.IsArraySliceOfPointers }}
@@ -536,6 +542,13 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}Capacity(slice
 					v.__alloc.Free(unsafe.Pointer(v.{{$fld.Name}}))
 				}
 
+				{{- if and (not $fld.Opts.IsArraySliceOfPointers) (not $fld.Opts.IsNative) }}
+					// Initialize added non-native structs
+					for idx := toPreserve; idx < sliceLen; idx++ {
+						(*newSlice)[idx].InitAllocator(v.__alloc)
+					}
+				{{- end }}
+
 				// Replace
 				v.{{$fld.Name}} = newSlice
 }
@@ -544,15 +557,21 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}Capacity(slice
 func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}CreateArray() {
 				v.{{$fld.SetFuncPrefix}}{{$fld.FuncName}}DestroyArray()
 				v.{{$fld.Name}} = v.allocArrayPtr_{{$fld.FriendlyArraySize}}{{$fld.FriendlyArrayTypeName}}()
+
+				{{- if and (not $fld.Opts.IsArraySliceOfPointers) (not $fld.Opts.IsNative) }}
+					arrLen := len(v.{{$fld.Name}})
+					// Initialize added non-native structs
+					for idx := 0; idx < arrLen; idx++ {
+						v.{{$fld.Name}}[idx].InitAllocator(v.__alloc)
+					}
+				{{- end }}
 }
 
 func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}DestroyArray() {
 				if v.{{$fld.Name}} != nil {
 					{{- if or $fld.Opts.IsArraySliceOfPointers (or (not $fld.Opts.IsNative) $fld.Opts.IsString) }}
-						vv := v.{{$fld.Name}}
-
 						// Free all entries
-						arrLen := len(vv)
+						arrLen := len(v.{{$fld.Name}})
 						for idx := 0; idx < arrLen; idx++ {
 							{{- if $fld.Opts.IsArraySliceOfPointers }}
 								v.{{$fld.SetFuncPrefix}}{{$fld.FuncName}}(idx, nil)
@@ -563,7 +582,7 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}DestroyArray()
 								{{- end }}
 							{{- else }}
 								{{- /* array/slice of non-native objects (they are supposed to be unmanaged too) */ -}}
-								vv[idx].Free()
+								v.{{$fld.Name}}[idx].Free()
 							{{- end }}
 						}
 					{{- end }}
@@ -628,7 +647,7 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(idx int, valu
 					{{- /* a pointer to an array/slice of non-native objects (they are supposed to be unmanaged too) */ -}}
 					// assert v.{{$fld.Name}} != nil && idx >= 0 && idx < len(*v.{{$fld.Name}})
 					vv := &((*v.{{$fld.Name}})[idx])
-					(*vv).Free()
+					vv.Free()
 					*vv = value
 }
 				{{- end }}
@@ -645,24 +664,24 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}Capacity(slice
 				newSlice = v.allocSlice_{{$fld.FriendlyArrayTypeName}}(sliceLen)
 			}
 
+			toPreserve := 0
+
 			// Copy original items if preserve up to the size of the new slice and free the rest
 			if v.{{$fld.Name}} != nil {
-				{{- if or $fld.Opts.IsArraySliceOfPointers (or (not $fld.Opts.IsNative) $fld.Opts.IsString) }}
-					vv := v.{{$fld.Name}}
-					oldSliceLen := len(vv)
+				oldSliceLen := len(v.{{$fld.Name}})
 
-					// Calculate the number of entries to preserve
-					toPreserve := 0
-					if preserve {
-						toPreserve = oldSliceLen
-						if toPreserve > sliceLen {
-							toPreserve = sliceLen
-						}
-						for idx := 0; idx < toPreserve; idx++ {
-							newSlice[idx] = vv[idx]
-						}
+				// Calculate the number of entries to preserve
+				if preserve {
+					toPreserve = oldSliceLen
+					if toPreserve > sliceLen {
+						toPreserve = sliceLen
 					}
+					for idx := 0; idx < toPreserve; idx++ {
+						newSlice[idx] = v.{{$fld.Name}}[idx]
+					}
+				}
 
+				{{- if or $fld.Opts.IsArraySliceOfPointers (or (not $fld.Opts.IsNative) $fld.Opts.IsString) }}
 					// Free unused entries
 					for idx := toPreserve; idx < oldSliceLen; idx++ {
 						{{- if $fld.Opts.IsArraySliceOfPointers }}
@@ -674,7 +693,7 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}Capacity(slice
 							{{- end }}
 						{{- else }}
 							{{- /* a pointer to a slice of non-native objects (they are supposed to be unmanaged too) */ -}}
-							vv[idx].Free()
+							v.{{$fld.Name}}[idx].Free()
 						{{- end }}
 					}
 				{{- end }}
@@ -686,6 +705,13 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}Capacity(slice
 					v.__alloc.Free(unsafe.Pointer(slicePtr{{$c}}))
 				}
 			}
+
+			{{- if and (not $fld.Opts.IsArraySliceOfPointers) (not $fld.Opts.IsNative) }}
+				// Initialize added non-native structs
+				for idx := toPreserve; idx < sliceLen; idx++ {
+					newSlice[idx].InitAllocator(v.__alloc)
+				}
+			{{- end }}
 
 			// Replace
 			v.{{$fld.Name}} = newSlice
@@ -720,7 +746,7 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(idx int, valu
 				{{- end }}
 			{{- else }}
 				if *vv != nil {
-					*vv.Free()
+					(*vv).Free()
 				}
 				*vv = value
 			{{- end }}
@@ -746,7 +772,7 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(idx int, valu
 func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(idx int, value {{$fld.TypeName}}) {
 				// assert idx >= 0 && idx < len(v.{{$fld.Name}})
 				vv := &(v.{{$fld.Name}}[idx])
-				*vv.Free()
+				vv.Free()
 				*vv = value
 }
 			{{- end }}
@@ -760,15 +786,15 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(value {{$fld.
 			}
 			v.{{$fld.Name}} = v.dupString(value)
 }
-		{{- end}}
+		{{- end }}
 	{{else }}
 		{{- /* a non-native objects (it is supposed to be unmanaged too) */ -}}
 func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(value {{$fld.TypeName}}) {
 		v.{{$fld.Name}}.Free()
 		v.{{$fld.Name}} = value
 }
-	{{- end}}
-{{- end}}
+	{{- end }}
+{{- end }}
 
 {{range $key, $value := .NeedAllocSlice }}
 func (v *{{$.StructName}}) allocSlice_{{$key}}(sliceLen int) []{{$value}} {
@@ -793,7 +819,7 @@ func (v *{{$.StructName}}) dupSlice_{{$key}}(src []{{$value}}) []{{$value}} {
 	v.__alloc.CopyMem(unsafe.Pointer(unsafe.SliceData(destSlice)), unsafe.Pointer(unsafe.SliceData(src)), memSize)
 	return destSlice
 }
-{{- end}}
+{{- end }}
 
 {{range $key, $value := .NeedAllocSlicePtr }}
 func (v *{{$.StructName}}) allocSlicePtr_{{$key}}(sliceLen int) *[]{{$value}} {
@@ -820,16 +846,16 @@ func (v *{{$.StructName}}) allocSlicePtr_{{$key}}(sliceLen int) *[]{{$value}} {
 func (v *{{$.StructName}}) dupSlicePtr_{{$key}}(src []{{$value}}) *[]{{$value}} {
 	var tempT {{$value}}
 
-	arrLen := len(src)
-	destSlice := v.allocSlicePtr_{{$key}}(arrLen)
-	memSize, _ := {{$.AllocatorPkg}}.MulUintptr(unsafe.Sizeof(tempT), uintptr(arrLen))
+	sliceLen := len(src)
+	destSlice := v.allocSlicePtr_{{$key}}(sliceLen)
+	memSize, _ := {{$.AllocatorPkg}}.MulUintptr(unsafe.Sizeof(tempT), uintptr(sliceLen))
 	v.__alloc.CopyMem(unsafe.Pointer(unsafe.SliceData(*destSlice)), unsafe.Pointer(unsafe.SliceData(src)), memSize)
 	return destSlice
 }
-{{- end}}
+{{- end }}
 
-{{range $siz, $item := .NeedAllocArrayPtr }}
-{{- range $key, $value := $item }}
+{{- range $siz, $item := .NeedAllocArrayPtr }}
+{{range $key, $value := $item }}
 func (v *{{$.StructName}}) allocArrayPtr_{{$siz}}() *[{{$key}}]{{$value}} {
 	var tempT {{$value}}
 
@@ -840,11 +866,14 @@ func (v *{{$.StructName}}) allocArrayPtr_{{$siz}}() *[{{$key}}]{{$value}} {
 	ptr := v.__alloc.Alloc(memSize)
 	return (*[{{$key}}]{{$value}})(ptr)
 }
-{{- end}}
-{{- end}}
+{{- end }}
+{{- end }}
 
 {{if .NeedAllocString }}
 func (v *{{$.StructName}}) allocString(strLen int) string {
+	if strLen == 0 {
+		return unsafe.String(nil, 0)
+	}
 	data := v.__alloc.Alloc(uintptr(strLen))
 	destStr := unsafe.String((*byte)(data), strLen)
 	return destStr
@@ -856,7 +885,7 @@ func (v *{{$.StructName}}) dupString(s string) string {
 	v.__alloc.CopyMem(unsafe.Pointer(unsafe.StringData(destStr)), unsafe.Pointer(unsafe.StringData(s)), uintptr(strLen))
 	return destStr
 }
-{{- end}}
+{{- end }}
 
 {{if .NeedAllocStringPtr }}
 func (v *{{$.StructName}}) allocStringPtr(strLen int) *string {
@@ -867,8 +896,7 @@ func (v *{{$.StructName}}) allocStringPtr(strLen int) *string {
 	}
 	ptr := v.__alloc.Alloc(memSize)
 	data := unsafe.Add(ptr, hdrSize)
-	tmpStr := unsafe.String((*byte)(data), strLen)
-	v.__alloc.CopyMem(ptr, unsafe.Pointer(&tmpStr), hdrSize)
+	*((*string)(ptr)) = unsafe.String((*byte)(data), strLen)
 	return (*string)(ptr)
 }
 
@@ -878,7 +906,7 @@ func (v *{{$.StructName}}) dupStringPtr(s string) *string {
 	v.__alloc.CopyMem(unsafe.Pointer(unsafe.StringData(*destStr)), unsafe.Pointer(unsafe.StringData(s)), uintptr(strLen))
 	return destStr
 }
-{{- end}}
+{{- end }}
 `, funcMap, setter)
 	if err != nil {
 		return err
