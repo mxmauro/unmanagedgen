@@ -48,7 +48,7 @@ func TestSample1(t *testing.T) {
 }
 
 func makeSampleChange(v *UnmanagedSample) {
-	switch rand.Intn(24) {
+	switch rand.Intn(30) {
 	case 0:
 		v.SomeInt = rand.Int()
 
@@ -197,15 +197,63 @@ func makeSampleChange(v *UnmanagedSample) {
 			makeSubsampleChange(&((*v.PtrToSliceOfSubsamples)[rand.Intn(len(*v.PtrToSliceOfSubsamples))]))
 		}
 
-		/*
+	case 24:
+		if v.PtrToArrayOfPtrToInts == nil {
+			v.SetPtrToArrayOfPtrToIntsCreateArray()
+		} else if rand.Intn(16) == 0 {
+			v.SetPtrToArrayOfPtrToIntsDestroyArray()
+		}
+		if v.PtrToArrayOfPtrToInts != nil {
+			v.SetPtrToArrayOfPtrToInts(rand.Intn(len(v.PtrToArrayOfPtrToInts)), getRandomPtrToInt())
+		}
 
-			PtrToArrayOfPtrToInts       *[4]*int
-			PtrToArrayOfPtrToStrings    *[4]*string
-			PtrToArrayOfPtrToSubSamples *[4]*UnmanagedSubSample
-			PtrToSliceOfPtrToInts       *[]*int
-			PtrToSliceOfPtrToStrings    *[]*string
-			PtrToSliceOfPtrToSubSamples *[]*UnmanagedSubSample
-		*/
+	case 25:
+		if v.PtrToArrayOfPtrToStrings == nil {
+			v.SetPtrToArrayOfPtrToStringsCreateArray()
+		} else if rand.Intn(16) == 0 {
+			v.SetPtrToArrayOfPtrToStringsDestroyArray()
+		}
+		if v.PtrToArrayOfPtrToStrings != nil {
+			v.SetPtrToArrayOfPtrToStrings(rand.Intn(len(v.PtrToArrayOfPtrToStrings)), getRandomPtrToString())
+		}
+
+	case 26:
+		if v.PtrToArrayOfPtrToSubsamples == nil {
+			v.SetPtrToArrayOfPtrToSubsamplesCreateArray()
+		} else if rand.Intn(16) == 0 {
+			v.SetPtrToArrayOfPtrToSubsamplesDestroyArray()
+		}
+		if v.PtrToArrayOfPtrToSubsamples != nil {
+			ss := NewUnmanagedSubSample(v.Allocator())
+			v.SetPtrToArrayOfPtrToSubsamples(rand.Intn(len(v.PtrToArrayOfPtrToSubsamples)), ss)
+			makeSubsampleChange(ss)
+		}
+
+	case 27:
+		if v.PtrToSliceOfPtrToInts == nil {
+			v.SetPtrToSliceOfPtrToIntsCapacity(rand.Intn(16), true)
+		}
+		if v.PtrToSliceOfPtrToInts != nil && len(*v.PtrToSliceOfPtrToInts) > 0 {
+			v.SetPtrToSliceOfPtrToInts(rand.Intn(len(*v.PtrToSliceOfPtrToInts)), getRandomPtrToInt())
+		}
+
+	case 28:
+		if v.PtrToSliceOfPtrToStrings == nil {
+			v.SetPtrToSliceOfPtrToStringsCapacity(rand.Intn(16), true)
+		}
+		if v.PtrToSliceOfPtrToStrings != nil && len(*v.PtrToSliceOfPtrToStrings) > 0 {
+			v.SetPtrToSliceOfPtrToStrings(rand.Intn(len(*v.PtrToSliceOfPtrToStrings)), getRandomPtrToString())
+		}
+
+	case 29:
+		if v.PtrToSliceOfPtrToSubsamples == nil {
+			v.SetPtrToSliceOfPtrToSubsamplesCapacity(rand.Intn(16), true)
+		}
+		if v.PtrToSliceOfPtrToSubsamples != nil && len(*v.PtrToSliceOfPtrToSubsamples) > 0 {
+			ss := NewUnmanagedSubSample(v.Allocator())
+			v.SetPtrToSliceOfPtrToSubsamples(rand.Intn(len(*v.PtrToSliceOfPtrToSubsamples)), ss)
+			makeSubsampleChange(ss)
+		}
 	}
 }
 
