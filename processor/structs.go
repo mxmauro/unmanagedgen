@@ -21,7 +21,7 @@ func (proc *Processor) processStruct(psName string, ps *parser.ParsedStruct) err
 		}
 
 		if gs == nil {
-			gs = proc.gen.AddStruct(generator.UnmanagedName(psName))
+			gs = proc.gen.AddStruct(generator.UnmanagedName(psName), psName)
 		}
 
 		fieldNames := field.Names

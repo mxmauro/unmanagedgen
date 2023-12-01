@@ -1,4 +1,4 @@
-package generator_test
+package processor_test
 
 import (
 	"bufio"
@@ -27,6 +27,7 @@ func TestSample1(t *testing.T) {
 	t.Logf("Running Sample1 test")
 	cmd := exec.Command("go", "test", "-v", "-timeout", "20m", "github.com/mxmauro/unmanagedgen/testdata/sample1")
 	cmd.Dir = filepath.Join(filepath.Dir(filename), "..")
+	cmd.Env = append(cmd.Environ(), "CGO_ENABLED=1")
 	err = runCmd(t, cmd)
 	if err != nil {
 		t.Fatal(err)

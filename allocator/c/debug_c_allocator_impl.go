@@ -43,8 +43,6 @@ func (c *DebugCAllocator) Alloc(size uintptr) unsafe.Pointer {
 	atomic.AddInt64(&c.usage, int64(size))
 	ptr = unsafe.Add(ptr, sizeOfUintptr)
 
-	c.ZeroMem(ptr, size)
-
 	ptr2 := unsafe.Add(ptr, size)
 	C.memcpy(ptr2, unsafe.Pointer(&guard), C.size_t(guardSize))
 
@@ -72,14 +70,6 @@ func (c *DebugCAllocator) Free(ptr unsafe.Pointer) {
 
 		C.free(realPtr)
 	}
-}
-
-func (c *DebugCAllocator) ZeroMem(ptr unsafe.Pointer, size uintptr) {
-	C.memset(ptr, 0, C.size_t(size))
-}
-
-func (c *DebugCAllocator) CopyMem(dest, src unsafe.Pointer, size uintptr) {
-	C.memcpy(dest, src, C.size_t(size))
 }
 
 func (c *DebugCAllocator) Usage() int64 {

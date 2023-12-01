@@ -20,8 +20,9 @@ type Generator struct {
 }
 
 type Struct struct {
-	name   string
-	fields []Field
+	name        string
+	managedName string
+	fields      []Field
 }
 
 type Field struct {
@@ -87,10 +88,11 @@ func (gen *Generator) NextId() string {
 	return gen.idPrefix + strconv.FormatUint(uint64(gen.idCounter), 10)
 }
 
-func (gen *Generator) AddStruct(name string) *Struct {
+func (gen *Generator) AddStruct(name string, managedName string) *Struct {
 	gs := &Struct{
-		name:   name,
-		fields: make([]Field, 0),
+		name:        name,
+		managedName: managedName,
+		fields:      make([]Field, 0),
 	}
 	gen.structs = append(gen.structs, gs)
 	return gs
@@ -110,6 +112,11 @@ func (gen *Generator) Save() error {
 	}
 
 	err = sc.WriteStructs()
+	if err != nil {
+		return err
+	}
+
+	err = sc.WriteHelpers()
 	if err != nil {
 		return err
 	}

@@ -1,11 +1,13 @@
 module github.com/mxmauro/unmanagedgen
 
-go 1.20
+go 1.21
+
+toolchain go1.21.4
 
 require (
 	github.com/mxmauro/FastGlobbing v1.0.0
-	github.com/mxmauro/gofile-parser v1.0.3
-	github.com/spf13/cobra v1.7.0
+	github.com/mxmauro/gofile-parser v1.1.0
+	github.com/spf13/cobra v1.8.0
 )
 
 require (

@@ -95,18 +95,20 @@ func (sc *SaveContext) WriteStructAllocator(st *Struct) error {
 		Opts     intFieldOptions
 	}
 	type AllocNewFree struct {
-		NewFuncName     string
-		StructName      string
-		AllocatorPkg    string
-		MustFreeStrings bool
-		HaveArrays      bool
-		Fields          []AllocNewFreeField
+		NewFuncName       string
+		StructName        string
+		ManagedStructName string
+		AllocatorPkg      string
+		MustFreeStrings   bool
+		HaveArrays        bool
+		Fields            []AllocNewFreeField
 	}
 
 	allocNF := AllocNewFree{
-		StructName:   st.name,
-		AllocatorPkg: sc.allocatorPkg,
-		Fields:       make([]AllocNewFreeField, 0),
+		StructName:        st.name,
+		ManagedStructName: st.managedName,
+		AllocatorPkg:      sc.allocatorPkg,
+		Fields:            make([]AllocNewFreeField, 0),
 	}
 
 	// New method
@@ -148,8 +150,16 @@ func (sc *SaveContext) WriteStructAllocator(st *Struct) error {
 	}
 
 	err := sc.WriteTemplate("StructAllocator", `
+// {{.NewFuncName}} creates a new {{.StructName}} object and returns a pointer to it
 func {{.NewFuncName}}(alloc {{.AllocatorPkg}}.Allocator) *{{.StructName}} {
-	v := (*{{.StructName}})(alloc.Alloc(unsafe.Sizeof({{.StructName}}{})))
+
+	ptr := alloc.Alloc(unsafe.Sizeof({{.StructName}}{}))
+	if ptr == nil {
+		panic("cannot allocate memory for {{$.StructName}}")
+	}
+	allocator.ZeroMem(ptr, unsafe.Sizeof({{.StructName}}{}))
+
+	v := (*{{.StructName}})(ptr)
 	v.__alloc = alloc
 	v.initNonPointerNonNativeFields()
 	return v
@@ -162,6 +172,7 @@ func (v *{{.StructName}}) InitAllocator(alloc {{.AllocatorPkg}}.Allocator) {
 	v.initNonPointerNonNativeFields()
 }
 
+// Free deletes the object and frees memory
 func (v *{{.StructName}}) Free() {
 {{- if .MustFreeStrings }} 
 	var bytePtr *byte
@@ -317,6 +328,15 @@ func (v *{{.StructName}}) initNonPointerNonNativeFields() {
 		{{- end }}
 	{{- end }}
 {{- end }}
+}
+
+func (v *{{$.StructName}}) zeroAlloc(size uintptr) unsafe.Pointer {
+	ptr := v.__alloc.Alloc(size)
+	if ptr == nil {
+		panic("cannot allocate memory for {{$.StructName}}")
+	}
+	allocator.ZeroMem(ptr, size)
+	return ptr
 }
 `, funcMap, allocNF)
 	if err != nil {
@@ -476,9 +496,9 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(value *{{$fld
 					if value != nil {
 						valueSize := unsafe.Sizeof(*value)
 						if v.{{$fld.Name}} == nil {
-							v.{{$fld.Name}} = (*{{$fld.TypeName}})(v.__alloc.Alloc(valueSize))
+							v.{{$fld.Name}} = (*{{$fld.TypeName}})(v.zeroAlloc(valueSize))
 						}
-						v.__alloc.CopyMem(unsafe.Pointer(v.{{$fld.Name}}), unsafe.Pointer(value), valueSize)
+						{{$.AllocatorPkg}}.CopyMem(unsafe.Pointer(v.{{$fld.Name}}), unsafe.Pointer(value), valueSize)
 					} else if v.{{$fld.Name}} != nil {
 						v.__alloc.Free(unsafe.Pointer(v.{{$fld.Name}}))
 						v.{{$fld.Name}} = nil
@@ -612,9 +632,9 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(idx int, valu
 						if value != nil {
 							valueSize := unsafe.Sizeof(*value)
 							if *vv == nil {
-								*vv = (*{{$fld.TypeName}})(v.__alloc.Alloc(valueSize))
+								*vv = (*{{$fld.TypeName}})(v.zeroAlloc(valueSize))
 							}
-							v.__alloc.CopyMem(unsafe.Pointer(*vv), unsafe.Pointer(value), valueSize)
+							{{$.AllocatorPkg}}.CopyMem(unsafe.Pointer(*vv), unsafe.Pointer(value), valueSize)
 						} else if *vv != nil {
 							v.__alloc.Free(unsafe.Pointer(*vv))
 							*vv = nil
@@ -736,9 +756,9 @@ func (v *{{$.StructName}}) {{$fld.SetFuncPrefix}}{{$fld.FuncName}}(idx int, valu
 					if value != nil {
 						valueSize := unsafe.Sizeof(*value)
 						if *vv == nil {
-							*vv = (*{{$fld.TypeName}})(v.__alloc.Alloc(valueSize))
+							*vv = (*{{$fld.TypeName}})(v.zeroAlloc(valueSize))
 						}
-						v.__alloc.CopyMem(unsafe.Pointer(*vv), unsafe.Pointer(value), valueSize)
+						{{$.AllocatorPkg}}.CopyMem(unsafe.Pointer(*vv), unsafe.Pointer(value), valueSize)
 					} else if *vv != nil {
 						v.__alloc.Free(unsafe.Pointer(*vv))
 						*vv = nil
@@ -805,7 +825,7 @@ func (v *{{$.StructName}}) allocSlice_{{$key}}(sliceLen int) []{{$value}} {
 		panic("{{$.StructName}}::allocSlice[{{$value}}]: size out of range")
 	}
 
-	data := v.__alloc.Alloc(memSize)
+	data := v.zeroAlloc(memSize)
 	destSlice := unsafe.Slice((*{{$value}})(data), sliceLen)
 	return destSlice
 }
@@ -816,7 +836,7 @@ func (v *{{$.StructName}}) dupSlice_{{$key}}(src []{{$value}}) []{{$value}} {
 	arrLen := len(src)
 	destSlice := v.allocSlice_{{$key}}(arrLen)
 	memSize, _ := {{$.AllocatorPkg}}.MulUintptr(unsafe.Sizeof(tempT), uintptr(arrLen))
-	v.__alloc.CopyMem(unsafe.Pointer(unsafe.SliceData(destSlice)), unsafe.Pointer(unsafe.SliceData(src)), memSize)
+	{{$.AllocatorPkg}}.CopyMem(unsafe.Pointer(unsafe.SliceData(destSlice)), unsafe.Pointer(unsafe.SliceData(src)), memSize)
 	return destSlice
 }
 {{- end }}
@@ -836,10 +856,10 @@ func (v *{{$.StructName}}) allocSlicePtr_{{$key}}(sliceLen int) *[]{{$value}} {
 	if overflow {
 		panic("{{$.StructName}}::allocSlicePtr[{{$value}}]: size out of range")
 	}
-	ptr := v.__alloc.Alloc(memSize)
+	ptr := v.zeroAlloc(memSize)
 	data := unsafe.Add(ptr, hdrSize)
 	tmpSlice := unsafe.Slice((*{{$value}})(data), sliceLen)
-	v.__alloc.CopyMem(ptr, unsafe.Pointer(&tmpSlice), hdrSize)
+	{{$.AllocatorPkg}}.CopyMem(ptr, unsafe.Pointer(&tmpSlice), hdrSize)
 	return (*[]{{$value}})(ptr)
 }
 
@@ -849,7 +869,7 @@ func (v *{{$.StructName}}) dupSlicePtr_{{$key}}(src []{{$value}}) *[]{{$value}} 
 	sliceLen := len(src)
 	destSlice := v.allocSlicePtr_{{$key}}(sliceLen)
 	memSize, _ := {{$.AllocatorPkg}}.MulUintptr(unsafe.Sizeof(tempT), uintptr(sliceLen))
-	v.__alloc.CopyMem(unsafe.Pointer(unsafe.SliceData(*destSlice)), unsafe.Pointer(unsafe.SliceData(src)), memSize)
+	{{$.AllocatorPkg}}.CopyMem(unsafe.Pointer(unsafe.SliceData(*destSlice)), unsafe.Pointer(unsafe.SliceData(src)), memSize)
 	return destSlice
 }
 {{- end }}
@@ -863,7 +883,7 @@ func (v *{{$.StructName}}) allocArrayPtr_{{$siz}}() *[{{$key}}]{{$value}} {
 	if overflow {
 		panic("{{$.StructName}}::allocArrayPtr[[{{$key}}]{{$value}}]: size out of range")
 	}
-	ptr := v.__alloc.Alloc(memSize)
+	ptr := v.zeroAlloc(memSize)
 	return (*[{{$key}}]{{$value}})(ptr)
 }
 {{- end }}
@@ -874,7 +894,7 @@ func (v *{{$.StructName}}) allocString(strLen int) string {
 	if strLen == 0 {
 		return unsafe.String(nil, 0)
 	}
-	data := v.__alloc.Alloc(uintptr(strLen))
+	data := v.zeroAlloc(uintptr(strLen))
 	destStr := unsafe.String((*byte)(data), strLen)
 	return destStr
 }
@@ -882,7 +902,7 @@ func (v *{{$.StructName}}) allocString(strLen int) string {
 func (v *{{$.StructName}}) dupString(s string) string {
 	strLen := len(s)
 	destStr := v.allocString(strLen)
-	v.__alloc.CopyMem(unsafe.Pointer(unsafe.StringData(destStr)), unsafe.Pointer(unsafe.StringData(s)), uintptr(strLen))
+	{{$.AllocatorPkg}}.CopyMem(unsafe.Pointer(unsafe.StringData(destStr)), unsafe.Pointer(unsafe.StringData(s)), uintptr(strLen))
 	return destStr
 }
 {{- end }}
@@ -894,7 +914,7 @@ func (v *{{$.StructName}}) allocStringPtr(strLen int) *string {
 	if overflow {
 		panic("{{$.StructName}}::allocStringPtr: size out of range")
 	}
-	ptr := v.__alloc.Alloc(memSize)
+	ptr := v.zeroAlloc(memSize)
 	data := unsafe.Add(ptr, hdrSize)
 	*((*string)(ptr)) = unsafe.String((*byte)(data), strLen)
 	return (*string)(ptr)
@@ -903,7 +923,7 @@ func (v *{{$.StructName}}) allocStringPtr(strLen int) *string {
 func (v *{{$.StructName}}) dupStringPtr(s string) *string {
 	strLen := len(s)
 	destStr := v.allocStringPtr(strLen)
-	v.__alloc.CopyMem(unsafe.Pointer(unsafe.StringData(*destStr)), unsafe.Pointer(unsafe.StringData(s)), uintptr(strLen))
+	{{$.AllocatorPkg}}.CopyMem(unsafe.Pointer(unsafe.StringData(*destStr)), unsafe.Pointer(unsafe.StringData(s)), uintptr(strLen))
 	return destStr
 }
 {{- end }}

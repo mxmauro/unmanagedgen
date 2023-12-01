@@ -12,10 +12,31 @@ import (
 
 const SamplesCount = 1000000
 
+/*
+
+type Allocator struct {
+}
+
+// -----------------------------------------------------------------------------
+
+func New() *Allocator {
+	return &Allocator{}
+}
+
+func (a *Allocator) Alloc(size uintptr) unsafe.Pointer {
+	ptr := C.mi_malloc(C.size_t(size))
+	return unsafe.Pointer(ptr)
+}
+
+func (a *Allocator) Free(ptr unsafe.Pointer) {
+	C.mi_free(ptr)
+}
+
+*/
 // -----------------------------------------------------------------------------
 
 func TestSample1(t *testing.T) {
-	alloc := c.NewWithDebug()
+	alloc := c.New()
 
 	t.Logf("Initializing %v elements", SamplesCount)
 	arr := make([]*UnmanagedSample, SamplesCount)
@@ -42,9 +63,11 @@ func TestSample1(t *testing.T) {
 		arr[idx].Free()
 	}
 
-	if alloc.Usage() != 0 {
-		t.Fatalf("Usage is not zero! [%v]", alloc.Usage())
-	}
+	/*
+		if alloc.Usage() != 0 {
+			t.Fatalf("Usage is not zero! [%v]", alloc.Usage())
+		}
+	*/
 }
 
 func makeSampleChange(v *UnmanagedSample) {

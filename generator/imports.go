@@ -9,12 +9,14 @@ import (
 // -----------------------------------------------------------------------------
 
 func (sc *SaveContext) WriteImports() error {
-	sc.allocatorPkg = sc.gen.NextId() + "_alloc"
+	// sc.allocatorPkg = sc.gen.NextId() + "_alloc"
+	sc.allocatorPkg = "allocator"
 
 	sc.WriteLine("import (")
 	sc.WriteLine("\"unsafe\"")
 	sc.WriteLine("")
-	sc.WriteLine("%v \"github.com/mxmauro/unmanagedgen/allocator\"", sc.allocatorPkg)
+	// sc.WriteLine("%v \"github.com/mxmauro/unmanagedgen/allocator\"", sc.allocatorPkg)
+	sc.WriteLine("\"github.com/mxmauro/unmanagedgen/allocator\"")
 
 	// Create a list of used package names
 	pkgNames := make([]string, 0)
