@@ -88,4 +88,4 @@ func (v *UnmanagedSample) SetA(value string)
 
 ## LICENSE
 
-[MIT](/LICENSE.txt)
+See [LICENSE](/LICENSE) file for details.
